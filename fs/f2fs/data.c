@@ -1682,13 +1682,14 @@ out:
 	return err;
 }
 
-static void f2fs_invalidate_data_page(struct page *page, unsigned int offset,
-				      unsigned int length)
+void f2fs_invalidate_page(struct page *page, unsigned int offset,
+							unsigned int length)
 {
 	struct inode *inode = page->mapping->host;
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 
-	if (inode->i_ino >= F2FS_ROOT_INO(sbi) && (offset % PAGE_CACHE_SIZE))
+	if (inode->i_ino >= F2FS_ROOT_INO(sbi) &&
+		(offset % PAGE_CACHE_SIZE || length != PAGE_CACHE_SIZE))
 		return;
 
 	if (PageDirty(page)) {
@@ -1706,6 +1707,7 @@ static void f2fs_invalidate_data_page(struct page *page, unsigned int offset,
 
 	ClearPagePrivate(page);
 }
+
 
 int f2fs_release_page(struct page *page, gfp_t wait)
 {
