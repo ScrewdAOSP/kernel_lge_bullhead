@@ -188,4 +188,9 @@ else
 	fi
 fi
 
-echo "~ThugLife~Alpha~Bullhead"
+if [ ! "$THUGVERSION" == "" ];
+then
+echo "~$THUGVERSION"
+else
+echo "~ThugLife"
+fi
