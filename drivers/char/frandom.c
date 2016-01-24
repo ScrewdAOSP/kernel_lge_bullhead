@@ -263,7 +263,7 @@ static ssize_t frandom_read(struct file *filp, char *buf, size_t count,
 			swap_byte(&S[i], &S[j]);
 			*localbuf++ = S[(S[i] + S[j]) & 0xff];
 		}
- 
+
 		if (copy_to_user(buf, state->buf, dobytes)) {
 			ret = -EFAULT;
 			goto out;
@@ -274,7 +274,7 @@ static ssize_t frandom_read(struct file *filp, char *buf, size_t count,
 	}
 
  out:
-	state->i = i;     
+	state->i = i;
 	state->j = j;
 
 	up(&state->sem);
@@ -308,7 +308,7 @@ static int frandom_init_module(void)
 
 	/* The buffer size MUST be at least 256 bytes, because we assume that
 	   minimal length in init_rand_state().
-	*/       
+	*/
 	if (frandom_bufsize < 256) {
 		printk(KERN_ERR "frandom: Refused to load because frandom_bufsize=%d < 256\n",frandom_bufsize);
 		return -EINVAL;
@@ -340,7 +340,7 @@ static int frandom_init_module(void)
 		printk(KERN_WARNING "frandom: Failed to register class fastrng\n");
 		goto error0;
 	}
-	
+
 	/*
 	 * Register your major, and accept a dynamic number. This is the
 	 * first thing to do, in order to avoid releasing other module's
@@ -406,7 +406,7 @@ static int frandom_init_module(void)
 	kfree(erandom_state->buf);
 	kfree(erandom_state);
 
-	return result;	
+	return result;
 }
 
 module_init(frandom_init_module);
