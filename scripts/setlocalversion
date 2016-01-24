@@ -191,5 +191,5 @@ if [ ! "$THUGVERSION" == "" ];
 then
 echo "~$THUGVERSION"
 else
-echo "~ThugLife"
+echo "~ThugLife~Bullhead~Beta~$(date +%Y%m%d)"
 fi
