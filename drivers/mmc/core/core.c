@@ -550,6 +550,7 @@ static void mmc_wait_data_done(struct mmc_request *mrq)
  * needed
  * @work:	The idle time BKOPS work
  */
+
 void mmc_start_idle_time_bkops(struct work_struct *work)
 {
 	struct mmc_card *card = container_of(work, struct mmc_card,
