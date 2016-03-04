@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 10
 SUBLEVEL = 99
-EXTRAVERSION = -thuglife™
+EXTRAVERSION = -thuglife™-bullhead-1.0
 NAME = TOSSUG Baby Fish
 
 # *DOCUMENTATION*
