@@ -1158,6 +1158,7 @@ static int tomtom_config_compander(struct snd_soc_dapm_widget *w,
 			pr_debug("%s: EAR is enabled, do not enable compander\n",
 				 __func__);
 			break;
+
 		}
 		/* Set compander Sample rate */
 		snd_soc_update_bits(codec,
