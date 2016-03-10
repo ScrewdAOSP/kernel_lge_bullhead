@@ -78,7 +78,7 @@ delete_recursive("/cache/");
 run_program("/sbin/busybox", "umount", "/cache");
 set_progress(1.0);
 
-ui_print("######################");
-ui_print("#      Kernel flashed, enjoy!");
-ui_print("######################");
+ui_print("####################################");
+ui_print("#      Kernel flashed, enjoy!      #");
+ui_print("####################################");
 
