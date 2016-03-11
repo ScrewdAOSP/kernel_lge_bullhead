@@ -322,10 +322,10 @@ $(srctree)/scripts/Kbuild.include: ;
 include $(srctree)/scripts/Kbuild.include
 
 # Make variables (CC, etc...)
-
+CCACHE		= $(shell which ccache)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
-CC		= ccache $(CROSS_COMPILE)gcc
+CC		= $(CCACHE) $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
