@@ -324,7 +324,7 @@ static void arp_print_info(struct net_device *dev, struct arphdr *arp, int count
 		printk(ARP_PROJECT"%s - Sending dev_addr: ", __func__);
 	else
 		printk(ARP_PROJECT"%s - Received dev_addr: ", __func__);
-	for(i = 0; i < dev->addr_len - 1; i++)
+	for (i = 0; i < dev->addr_len - 1; i++)
 		printk("%02x:", dev->dev_addr[i]);
 	printk("%02x\n", dev->dev_addr[i]);
 
@@ -340,7 +340,7 @@ static void arp_print_info(struct net_device *dev, struct arphdr *arp, int count
 	/* Sender Hardware Address info */
 	ha = arp_ptr; // First of the ARP data - Sender HW address
 	printk(ARP_PROJECT"%s - Sender HW: ", __func__);
-	for(i = 0; i < dev->addr_len - 1; i++)
+	for (i = 0; i < dev->addr_len - 1; i++)
 		printk("%02x:", ha[i]);
 	printk("%02x\n", ha[i]);
 
@@ -360,7 +360,7 @@ static void arp_print_info(struct net_device *dev, struct arphdr *arp, int count
 	/* Target Hardware Address info */
 	ha = arp_ptr;
 	printk(ARP_PROJECT"%s - Target HW: ", __func__);
-	for(i = 0; i < dev->addr_len - 1; i++)
+	for (i = 0; i < dev->addr_len - 1; i++)
 		printk("%02x:", ha[i]);
 	printk("%02x\n", ha[i]);
 
@@ -907,6 +907,7 @@ static int arp_find_gw(struct net_device *dev, __be32 sip,
 		       unsigned char *sha)
 {
 	struct neighbour *n;
+	int found = 0;
 	int i;
 
 	n = __ipv4_neigh_lookup(dev, *(__force u32 *)&sip);
@@ -914,16 +915,16 @@ static int arp_find_gw(struct net_device *dev, __be32 sip,
 		if (memcmp(n->ha, sha, dev->addr_len)) {
 			printk(ARP_PROJECT"%s: Gateway update attempt detected from ",
 									__func__);
-			for(i = 0; i < dev->addr_len - 1; i++)
+			for (i = 0; i < dev->addr_len - 1; i++)
 				printk("%02x:", sha[i]);
 			printk("%02x !\n", sha[i]);
 
-			return 1;
+			found = 1;
 		}
 		neigh_release(n);
 	}
 
-	return 0;
+	return found;
 }
 
 /*
@@ -1657,7 +1658,8 @@ void __init arp_init(void)
 	init_time = jiffies;
 	arp_sys_init();
 	arp_allow_reply_lock_workqueue =
-			alloc_workqueue("arp_allow_reply_lock", WQ_UNBOUND | WQ_HIGHPRI, 0);
+			alloc_workqueue("arp_allow_reply_lock", WQ_UNBOUND | WQ_HIGHPRI |
+								WQ_POWER_EFFICIENT, 0);
 	INIT_DELAYED_WORK(&arp_allow_reply_lock_work, arp_allow_reply_lock);
 
 #ifdef CONFIG_SYSCTL

@@ -4067,11 +4067,13 @@ static int synaptics_rmi4_probe(struct i2c_client *client,
 
 	rmi4_data->det_workqueue =
 			alloc_workqueue("rmi_det_workqueue",
-				WQ_UNBOUND | WQ_HIGHPRI | __WQ_ORDERED, 1);
+				WQ_UNBOUND | WQ_HIGHPRI | __WQ_ORDERED |
+				WQ_POWER_EFFICIENT, 1);
 #ifdef CONFIG_TOUCHSCREEN_SCROFF_VOLCTR
 	rmi4_data->touch_off_workqueue =
 			alloc_workqueue("rmi_touch_off_workqueue",
-				WQ_UNBOUND | WQ_HIGHPRI | __WQ_ORDERED, 1);
+				WQ_UNBOUND | WQ_HIGHPRI | __WQ_ORDERED |
+				WQ_POWER_EFFICIENT, 1);
 #endif
 
 	INIT_DELAYED_WORK(&rmi4_data->det_work,
@@ -4777,19 +4779,25 @@ out:
 }
 
 #ifdef CONFIG_TOUCHSCREEN_SCROFF_VOLCTR
+static DEFINE_MUTEX(synaptics_rmi4_touch_off_lock);
+
 static void synaptics_rmi4_touch_off(struct work_struct *work)
 {
 	struct synaptics_rmi4_data *rmi4_data =
 		container_of(work, struct synaptics_rmi4_data, touch_off_work.work);
 
+	mutex_lock(&synaptics_rmi4_touch_off_lock);
+
 	if (!scr_suspended || rmi4_data->suspended)
-		return;
+		goto out;
 
 	synaptics_rmi4_suspend_trigger(rmi4_data);
 	if (rmi4_data->suspended && !mdss_turned_off) {
 		mdss_dsi_panel_reset_dsvreg_off();
 		mdss_dsi_panel_vreg_off();
 	}
+out:
+	mutex_unlock(&synaptics_rmi4_touch_off_lock);
 }
 
 void synaptics_rmi4_touch_off_trigger(unsigned int delay)

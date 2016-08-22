@@ -70,7 +70,7 @@
 /* Version, author, desc, etc */
 #define DRIVER_AUTHOR "jollaman999 <admin@jollaman999.com>"
 #define DRIVER_DESCRIPTION "Screen Off Volume & Track Control for almost any device"
-#define DRIVER_VERSION "3.1"
+#define DRIVER_VERSION "3.2"
 #define LOGTAG "[scroff_volctr]: "
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
@@ -86,7 +86,7 @@ MODULE_LICENSE("GPLv2");
 #define SOVC_TIME_GAP		250	// Ignore touch after this time (ms)
 #define SOVC_VOL_REEXEC_DELAY	250	// Re-exec delay for volume control (ms)
 #define SOVC_TRACK_REEXEC_DELAY	4000	// Re-exec delay for track control (ms)
-#define SOVC_AUTO_OFF_DELAY	4000	// Touch screen will be turned off when user pressing the screen (ms)
+#define SOVC_AUTO_OFF_DELAY	2500	// Touch screen will be turned off when user pressing the screen (ms)
 #define SOVC_KEY_PRESS_DUR	100	// Key press duration (ms)
 #define SOVC_VIB_STRENGTH	20	// Vibrator strength
 
@@ -102,13 +102,18 @@ static int touch_x = 0, touch_y = 0;
 static int prev_x = 0, prev_y = 0;
 static bool is_new_touch_x = false, is_new_touch_y = false;
 static bool is_touching = false;
+static bool sovc_auto_off_scheduled = false;
 static struct input_dev *sovc_input;
 static DEFINE_MUTEX(keyworklock);
+static DEFINE_MUTEX(touch_off_lock);
+static DEFINE_MUTEX(auto_off_schedule_lock);
 static struct workqueue_struct *sovc_volume_input_wq;
 static struct workqueue_struct *sovc_track_input_wq;
 static struct work_struct sovc_volume_input_work;
 static struct work_struct sovc_track_input_work;
 extern bool tomtom_mic_detected;
+
+static void touch_off(void);
 
 static bool registered = false;
 static DEFINE_MUTEX(reg_lock);
@@ -146,6 +151,27 @@ static int __init read_sovc_cmdline(char *sovc)
 	return 1;
 }
 __setup("sovc=", read_sovc_cmdline);
+
+/* Turn off the touch screen when user pressing the touch screen */
+static void sovc_auto_off_check(struct work_struct *sovc_auto_off_check_work)
+{
+	if (!is_new_touch_x && !is_new_touch_y)
+		return;
+
+	touch_off();
+}
+static DECLARE_DELAYED_WORK(sovc_auto_off_check_work, sovc_auto_off_check);
+
+/* Schedule delayed work of sovc_auto_off_check_work */
+static void sovc_auto_off_schedule(void)
+{
+	if (sovc_auto_off_scheduled)
+		return;
+
+	sovc_auto_off_scheduled = true;
+	queue_delayed_work(system_power_efficient_wq, &sovc_auto_off_check_work,
+				msecs_to_jiffies(sovc_auto_off_delay));
+}
 
 /* Key work func */
 static void scroff_volctr_key(struct work_struct *scroff_volctr_key_work)
@@ -207,15 +233,18 @@ static void scroff_volctr_key(struct work_struct *scroff_volctr_key_work)
 #endif
 	mutex_unlock(&keyworklock);
 
-	if (is_touching)
+	if (is_touching) {
+		// It should be canceled to prevent to turn off the touchscreen.
+		cancel_delayed_work(&sovc_auto_off_check_work);
 		scroff_volctr_key_delayed_trigger();
+	}
 }
 static DECLARE_DELAYED_WORK(scroff_volctr_key_work, scroff_volctr_key);
 
 /* Key trigger */
 static void scroff_volctr_key_trigger(void)
 {
-	schedule_delayed_work(&scroff_volctr_key_work, 0);
+	queue_delayed_work(system_power_efficient_wq, &scroff_volctr_key_work, 0);
 }
 
 /* Key delayed trigger */
@@ -234,7 +263,7 @@ static void scroff_volctr_key_delayed_trigger(void)
 		break;
 	}
 
-	schedule_delayed_work(&scroff_volctr_key_work,
+	queue_delayed_work(system_power_efficient_wq, &scroff_volctr_key_work,
 				msecs_to_jiffies(delay));
 }
 
@@ -244,6 +273,7 @@ static void scroff_volctr_reset(void)
 	is_touching = false;
 	is_new_touch_x = false;
 	is_new_touch_y = false;
+	sovc_auto_off_scheduled = false;
 	control = NO_CONTROL;
 }
 
@@ -253,6 +283,11 @@ static void new_touch_x(int x)
 	touch_time_pre_x = ktime_to_ms(ktime_get());
 	is_new_touch_x = true;
 	prev_x = x;
+
+	mutex_lock(&auto_off_schedule_lock);
+	sovc_auto_off_schedule();
+	mutex_unlock(&auto_off_schedule_lock);
+
 }
 
 static void new_touch_y(int y)
@@ -260,6 +295,10 @@ static void new_touch_y(int y)
 	touch_time_pre_y = ktime_to_ms(ktime_get());
 	is_new_touch_y = true;
 	prev_y = y;
+
+	mutex_lock(&auto_off_schedule_lock);
+	sovc_auto_off_schedule();
+	mutex_unlock(&auto_off_schedule_lock);
 }
 
 /* exec key control */
@@ -273,16 +312,22 @@ static void exec_key(int key)
 /* Turn off the touch screen */
 static void touch_off(void)
 {
+	mutex_lock(&touch_off_lock);
+
 	if (sovc_force_off)
-		return;
+		goto out;
 
 	sovc_force_off = true;
 	synaptics_rmi4_touch_off_trigger(0);
 
 	// Vibrate when action performed
 #ifdef CONFIG_QPNP_HAPTIC
-	qpnp_hap_td_enable(SOVC_VIB_STRENGTH * 4);
+	qpnp_hap_td_enable(SOVC_VIB_STRENGTH * 3);
+	msleep(50);
+	qpnp_hap_td_enable(SOVC_VIB_STRENGTH * 3);
 #endif
+out:
+	mutex_unlock(&touch_off_lock);
 }
 
 /* scroff_volctr volume function */
@@ -290,19 +335,16 @@ static void sovc_volume_input_callback(struct work_struct *unused)
 {
 	s64 time;
 
-	if (!is_touching) {
-		if (!is_new_touch_y)
-			new_touch_y(touch_y);
+	if (!is_new_touch_y)
+		new_touch_y(touch_y);
 
-		time = ktime_to_ms(ktime_get()) - touch_time_pre_y;
+	time = ktime_to_ms(ktime_get()) - touch_time_pre_y;
 
-		if (time > 0 && time < SOVC_TIME_GAP) {
-			if (prev_y - touch_y > SOVC_VOL_FEATHER) // Volume Up (down->up)
-				exec_key(VOL_UP);
-			else if (touch_y - prev_y > SOVC_VOL_FEATHER) // Volume Down (up->down)
-				exec_key(VOL_DOWN);
-		} else if (time > sovc_auto_off_delay)
-			touch_off();
+	if (time > 0 && time < SOVC_TIME_GAP) {
+		if (prev_y - touch_y > SOVC_VOL_FEATHER) // Volume Up (down->up)
+			exec_key(VOL_UP);
+		else if (touch_y - prev_y > SOVC_VOL_FEATHER) // Volume Down (up->down)
+			exec_key(VOL_DOWN);
 	}
 }
 
@@ -311,19 +353,16 @@ static void sovc_track_input_callback(struct work_struct *unused)
 {
 	s64 time;
 
-	if (!is_touching) {
-		if (!is_new_touch_x)
-			new_touch_x(touch_x);
+	if (!is_new_touch_x)
+		new_touch_x(touch_x);
 
-		time = ktime_to_ms(ktime_get()) - touch_time_pre_x;
+	time = ktime_to_ms(ktime_get()) - touch_time_pre_x;
 
-		if (time > 0 && time < SOVC_TIME_GAP) {
-			if (prev_x - touch_x > SOVC_TRACK_FEATHER) // Track Next (right->left)
-				exec_key(TRACK_NEXT);
-			else if (touch_x - prev_x > SOVC_TRACK_FEATHER) // Track Previous (left->right)
-				exec_key(TRACK_PREVIOUS);
-		} else if (time > sovc_auto_off_delay)
-			touch_off();
+	if (time > 0 && time < SOVC_TIME_GAP) {
+		if (prev_x - touch_x > SOVC_TRACK_FEATHER) // Track Next (right->left)
+			exec_key(TRACK_NEXT);
+		else if (touch_x - prev_x > SOVC_TRACK_FEATHER) // Track Previous (left->right)
+			exec_key(TRACK_PREVIOUS);
 	}
 }
 
@@ -343,8 +382,10 @@ static int sovc_input_common_event(struct input_handle *handle, unsigned int typ
 			break;
 
 		case ABS_MT_TRACKING_ID:
-			if (value == 0xffffffff)
+			if (value == 0xffffffff) {
+				cancel_delayed_work(&sovc_auto_off_check_work);
 				scroff_volctr_reset();
+			}
 			break;
 
 		default:
@@ -361,6 +402,9 @@ static void sovc_volume_input_event(struct input_handle *handle, unsigned int ty
 
 	out = sovc_input_common_event(handle, type, code, value);
 	if (out)
+		return;
+
+	if (is_touching)
 		return;
 
 	/* You can debug here with 'adb shell getevent -l' command. */
@@ -382,6 +426,9 @@ static void sovc_track_input_event(struct input_handle *handle, unsigned int typ
 
 	out = sovc_input_common_event(handle, type, code, value);
 	if (out)
+		return;
+
+	if (is_touching)
 		return;
 
 	/* You can debug here with 'adb shell getevent -l' command. */
@@ -491,14 +538,16 @@ static int register_sovc(void)
 		goto out;
 	}
 
-	sovc_volume_input_wq = create_workqueue("sovc_volume_iwq");
+	sovc_volume_input_wq = alloc_workqueue("sovc_volume_iwq",
+				WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_POWER_EFFICIENT, 1);
 	if (!sovc_volume_input_wq) {
 		pr_err("%s: Failed to create sovc_volume_iwq workqueue\n", __func__);
 		mutex_unlock(&reg_lock);
 		return -EFAULT;
 	}
 	INIT_WORK(&sovc_volume_input_work, sovc_volume_input_callback);
-	sovc_track_input_wq = create_workqueue("sovc_track_iwq");
+	sovc_track_input_wq = alloc_workqueue("sovc_track_iwq",
+				WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_POWER_EFFICIENT, 1);
 	if (!sovc_track_input_wq) {
 		pr_err("%s: Failed to create sovc_track_iwq workqueue\n", __func__);
 		mutex_unlock(&reg_lock);
@@ -627,8 +676,11 @@ static ssize_t sovc_scroff_volctr_temp_dump(struct device *dev,
 				unregister_sovc();
 			else
 				register_sovc();
-		} else if (value_changed)
+		} else if (value_changed) {
+			mutex_lock(&touch_off_lock);
 			synaptics_rmi4_touch_off_trigger(0);
+			mutex_unlock(&touch_off_lock);
+		}
 	} else
 		unregister_sovc();
 
@@ -701,6 +753,7 @@ static int sovc_fb_notifier_callback(struct notifier_block *self,
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
 			sovc_scr_suspended = false;
+			cancel_delayed_work(&sovc_auto_off_check_work);
 			unregister_sovc();
 			break;
 		case FB_BLANK_POWERDOWN:
